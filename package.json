@@ -1,0 +1,28 @@
+{
+  "name": "nymbus-exercise",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Near real-time operational dashboard prototype for a multi-tenant ISO 8583 payment platform",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:web": "npm run dev -w apps/web",
+    "dev:api": "npm run dev -w services/api",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "infra:reset": "docker compose down -v"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
