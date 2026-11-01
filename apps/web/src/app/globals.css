@@ -1,26 +1,59 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #0a0f1c;
+  --panel: #111a2e;
+  --panel-2: #172238;
+  --border: #22304d;
+  --text: #e2e8f0;
+  --muted: #8b9bb4;
+  --accent: #60a5fa;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  background: var(--bg);
+  color: var(--text);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+select, input {
+  color-scheme: dark;
+}
+
+.panel {
+  @apply rounded-lg border border-border bg-panel;
+}
+.panel-title {
+  @apply text-[11px] font-semibold uppercase tracking-wider text-muted;
+}
+.control {
+  @apply rounded-md border border-border bg-panel-2 px-2 py-1 text-sm text-slate-200 outline-none focus:border-accent;
+}
+.btn {
+  @apply rounded-md border border-border bg-panel-2 px-2.5 py-1 text-sm text-slate-200 hover:border-accent hover:text-white disabled:opacity-50;
+}
+.btn-primary {
+  @apply rounded-md bg-accent px-3 py-1 text-sm font-medium text-slate-950 hover:bg-blue-300 disabled:opacity-50;
+}
+.chip {
+  @apply inline-flex items-center gap-1 rounded-full border border-border bg-panel-2 px-2 py-0.5 text-xs text-slate-200;
+}
+.seg {
+  @apply inline-flex overflow-hidden rounded-md border border-border text-sm;
+}
+.seg button {
+  @apply px-2.5 py-1 text-slate-300 hover:bg-panel-2;
+}
+.seg button[data-active="true"] {
+  @apply bg-accent text-slate-950 font-medium;
 }

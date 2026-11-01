@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Shared types live as TypeScript source in the monorepo; let Next compile them.
+  transpilePackages: ["@nymbus/shared"],
+  reactStrictMode: true,
   turbopack: {
     rules: {
       "*.css": {

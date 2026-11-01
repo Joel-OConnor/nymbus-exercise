@@ -1,0 +1,97 @@
+{
+  "uid": "txn-longterm",
+  "title": "Transaction metrics (long-term, via OpenTelemetry)",
+  "description": "The >24h leg: the same per-transaction metrics the real-time dashboard shows, exported by the aggregator through the platform's OTel collector. Lower cardinality by design: outcome reduced to its class.",
+  "tags": ["nymbus", "otel"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "tenant", "type": "query", "label": "Tenant", "datasource": { "type": "prometheus", "uid": "prometheus" }, "query": "label_values(txn_count_total, tenant)", "includeAll": true, "multi": true, "current": { "text": "All", "value": "$__all" }, "refresh": 2 },
+      { "name": "vendor", "type": "query", "label": "Vendor", "datasource": { "type": "prometheus", "uid": "prometheus" }, "query": "label_values(txn_count_total, vendor)", "includeAll": true, "multi": true, "current": { "text": "All", "value": "$__all" }, "refresh": 2 }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Throughput (tps)", "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(txn_count_total{tenant=~\"$tenant\", vendor=~\"$vendor\"}[1m]))" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1 } }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Approval rate", "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(txn_count_total{tenant=~\"$tenant\", vendor=~\"$vendor\", outcome_class=\"approved\"}[5m])) / sum(rate(txn_count_total{tenant=~\"$tenant\", vendor=~\"$vendor\"}[5m]))" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 0.85 }, { "color": "green", "value": 0.9 }] } } }
+    },
+    {
+      "id": 3, "type": "stat", "title": "p95 latency", "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(txn_latency_ms_bucket{tenant=~\"$tenant\", vendor=~\"$vendor\"}[5m])))" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 350 }, { "color": "red", "value": 500 }] } } }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Aggregator lag", "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "max(aggregator_lag_seconds)" }],
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 15 }] } } }
+    },
+    {
+      "id": 5, "type": "stat", "title": "Emitter drops (connector)", "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(increase(metrics_emitter_dropped_total[5m]))" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } }
+    },
+    {
+      "id": 6, "type": "stat", "title": "Hot-path cost p99 (ms)", "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "max(connector_emit_overhead_p99_ms)" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 3 } }
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Throughput by vendor (tps)", "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (vendor) (rate(txn_count_total{tenant=~\"$tenant\", vendor=~\"$vendor\"}[1m]))", "legendFormat": "{{vendor}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 15, "stacking": { "mode": "normal" } } } }
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Outcome mix (tps)", "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (outcome_class) (rate(txn_count_total{tenant=~\"$tenant\", vendor=~\"$vendor\"}[1m]))", "legendFormat": "{{outcome_class}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 25, "stacking": { "mode": "normal" } } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "approved" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "teal" } }] },
+        { "matcher": { "id": "byName", "options": "soft_decline" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
+        { "matcher": { "id": "byName", "options": "hard_decline" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+        { "matcher": { "id": "byName", "options": "system_error" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "dark-red" } }] }
+      ] }
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Latency p50 / p95 / p99", "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum by (le) (rate(txn_latency_ms_bucket{tenant=~\"$tenant\", vendor=~\"$vendor\"}[2m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(txn_latency_ms_bucket{tenant=~\"$tenant\", vendor=~\"$vendor\"}[2m])))", "legendFormat": "p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.99, sum by (le) (rate(txn_latency_ms_bucket{tenant=~\"$tenant\", vendor=~\"$vendor\"}[2m])))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "thresholds": { "mode": "absolute", "steps": [{ "color": "transparent", "value": null }, { "color": "red", "value": 500 }] }, "custom": { "thresholdsStyle": { "mode": "line" } } } }
+    },
+    {
+      "id": 13, "type": "timeseries", "title": "Top tenants by throughput (tps)", "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "topk(8, sum by (tenant) (rate(txn_count_total{tenant=~\"$tenant\", vendor=~\"$vendor\"}[1m])))", "legendFormat": "{{tenant}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
+    },
+    {
+      "id": 14, "type": "timeseries", "title": "Metrics pipeline health", "gridPos": { "x": 0, "y": 20, "w": 24, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(metrics_emitter_emitted_total[1m]))", "legendFormat": "emitted/s (connector)" },
+        { "refId": "B", "expr": "sum(rate(aggregator_events_processed_total[1m]))", "legendFormat": "processed/s (aggregator)" },
+        { "refId": "C", "expr": "sum(rate(metrics_emitter_dropped_total[1m]))", "legendFormat": "dropped/s (connector)" },
+        { "refId": "D", "expr": "max(metrics_emitter_buffer_size)", "legendFormat": "emitter buffer (events)" }
+      ]
+    }
+  ]
+}

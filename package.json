@@ -12,17 +12,22 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "npm run dev --workspaces --if-present",
+    "dev": "concurrently -k -n sim,agg,api,web -c yellow,magenta,cyan,green \"npm:dev:sim\" \"npm:dev:aggregator\" \"npm:dev:api\" \"npm:dev:web\"",
     "dev:web": "npm run dev -w apps/web",
     "dev:api": "npm run dev -w services/api",
+    "dev:aggregator": "npm run dev -w services/aggregator",
+    "dev:sim": "npm run dev -w services/connector-sim",
+    "db:migrate": "npm run migrate -w packages/db",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "infra:up": "docker compose up -d",
+    "infra:up": "docker compose up -d --wait",
     "infra:down": "docker compose down",
-    "infra:reset": "docker compose down -v"
+    "infra:reset": "docker compose down -v",
+    "infra:logs": "docker compose logs -f",
+    "db:backfill": "npm run backfill -w services/connector-sim"
   },
-  "allowScripts": {
-    "esbuild@0.28.2": true
+  "devDependencies": {
+    "concurrently": "^9"
   }
 }

@@ -1,0 +1,23 @@
+{
+  "name": "@nymbus/otel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.200.0",
+    "@opentelemetry/resources": "^2.0",
+    "@opentelemetry/sdk-metrics": "^2.0",
+    "@opentelemetry/semantic-conventions": "^1.30"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5"
+  }
+}

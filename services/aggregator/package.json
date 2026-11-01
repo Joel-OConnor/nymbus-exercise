@@ -1,0 +1,24 @@
+{
+  "name": "@nymbus/aggregator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nymbus/db": "*",
+    "@nymbus/metrics-emitter": "*",
+    "@nymbus/otel": "*",
+    "@nymbus/shared": "*",
+    "ioredis": "^5",
+    "kafkajs": "^2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}

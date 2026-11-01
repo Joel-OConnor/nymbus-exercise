@@ -1,0 +1,24 @@
+{
+  "name": "@nymbus/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "migrate": "tsx src/cli.ts migrate",
+    "partitions": "tsx src/cli.ts partitions",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nymbus/shared": "*",
+    "pg": "^8"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/pg": "^8",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}
