@@ -13,6 +13,8 @@ Built as a thin vertical slice that runs end to end on a laptop: simulated vendo
 | [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) | How the underspecified brief was framed, and what's out of scope |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Operating it: commands, configuration, health checks, troubleshooting, load testing |
 | [docs/DEMO.md](docs/DEMO.md) | The live demo walkthrough |
+| [docs/EXECUTIVE_SUMMARY.md](docs/EXECUTIVE_SUMMARY.md) | The recommendation for a mixed technical and executive audience: problem, approach, alternatives, assumptions, evidence |
+| [docs/JOURNEY.md](docs/JOURNEY.md) | Speaking notes on how the work was approached and how AI was used |
 | `docs/Take-Home Exercise.pdf` | The brief |
 
 ## Quick start
