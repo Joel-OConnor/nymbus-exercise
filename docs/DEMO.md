@@ -8,7 +8,7 @@ A walkthrough for the live presentation. About 15 minutes including questions. E
 npm run infra:up && npm run db:migrate
 npm run db:backfill        # 24 h of plausible history with incidents at ~2.5 h, 6 h, 9 h, 14 h and 20 h ago
 npm run dev
-npm run smoke              # in a second terminal, once traffic is flowing: 31 checks, all should PASS
+npm run smoke              # in a second terminal, once traffic is flowing: 35 checks, all should PASS
 ```
 
 Let it run at least 15 minutes beforehand so the raw-event table and the live strip have real data. Open two browser tabs: the console at http://localhost:3000 and Grafana at http://localhost:3001 (admin/admin, Nymbus folder). Keep a terminal visible with `npm run dev` output for the "what's happening underneath" moments.
