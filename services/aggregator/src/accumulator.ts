@@ -31,21 +31,41 @@ export interface LiveAcc {
   bins: number[];
 }
 
+function mergeRollups(into: Map<string, RollupAcc>, from: Map<string, RollupAcc>): void {
+  for (const [k, r] of from) {
+    const mine = into.get(k);
+    if (!mine) {
+      into.set(k, { ...r, bins: [...r.bins] });
+      continue;
+    }
+    mine.count += r.count;
+    mine.amountSum += r.amountSum;
+    mine.latencySum += r.latencySum;
+    if (r.latencyMax > mine.latencyMax) mine.latencyMax = r.latencyMax;
+    r.bins.forEach((b, i) => (mine.bins[i] += b));
+  }
+}
+
+/** Events stamped further ahead of this process's clock than this do not move the freshness high-water mark. */
+export const MAX_FUTURE_SKEW_MS = 60_000;
+
 export class Accumulator {
   rollup1m = new Map<string, RollupAcc>();
   rollup5m = new Map<string, RollupAcc>();
   live = new Map<string, LiveAcc>();
   events: TxnMetricEvent[] = [];
+  /** Newest plausible event time seen; drives the lag gauge and the freshness badge. */
   newestEventMs = 0;
 
   get size(): number {
     return this.events.length;
   }
 
-  add(e: TxnMetricEvent): void {
+  add(e: TxnMetricEvent, now: number = Date.now()): void {
     const ts = Date.parse(e.occurredAt);
     if (Number.isNaN(ts)) return;
-    if (ts > this.newestEventMs) this.newestEventMs = ts;
+    // A badly skewed producer clock must not make the dashboard report "ahead of live" for hours.
+    if (ts > this.newestEventMs && ts <= now + MAX_FUTURE_SKEW_MS) this.newestEventMs = ts;
 
     this.events.push(e);
     this.addRollup(this.rollup1m, e, ts, 60_000);
@@ -55,6 +75,34 @@ export class Accumulator {
     this.addLive("all", sec, e);
     this.addLive(`t:${e.tenantId}`, sec, e);
     this.addLive(`v:${e.vendor}`, sec, e);
+  }
+
+  /**
+   * Merge another accumulator into this one. Used to re-queue a flush whose
+   * Postgres write failed. The Valkey side of that flush ran in parallel and
+   * HINCRBY is not idempotent, so the caller passes `live: false` for it; the
+   * rollup upserts are retried as a whole because the failed transaction
+   * applied none of them.
+   */
+  absorb(other: Accumulator, opts: { live: boolean }): void {
+    for (const e of other.events) this.events.push(e);
+    if (other.newestEventMs > this.newestEventMs) this.newestEventMs = other.newestEventMs;
+    mergeRollups(this.rollup1m, other.rollup1m);
+    mergeRollups(this.rollup5m, other.rollup5m);
+    if (!opts.live) return;
+    for (const [k, l] of other.live) {
+      const mine = this.live.get(k);
+      if (!mine) {
+        this.live.set(k, { ...l, bins: [...l.bins] });
+        continue;
+      }
+      mine.n += l.n;
+      mine.ok += l.ok;
+      mine.dec += l.dec;
+      mine.err += l.err;
+      mine.latSum += l.latSum;
+      l.bins.forEach((b, i) => (mine.bins[i] += b));
+    }
   }
 
   private addRollup(map: Map<string, RollupAcc>, e: TxnMetricEvent, ts: number, widthMs: number): void {

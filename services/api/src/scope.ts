@@ -1,6 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Pool, PoolClient } from "@nymbus/db";
-import type { Scope } from "@nymbus/shared";
+import { PLATFORM_TENANT_ID, type Scope } from "@nymbus/shared";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -21,7 +21,7 @@ export function resolveScope(req: FastifyRequest, reply: FastifyReply, done: () 
   const tenantId = req.headers["x-tenant-id"] ? String(req.headers["x-tenant-id"]) : undefined;
   if (role === "global") {
     req.scope = { role: "global" };
-  } else if (role === "tenant" && tenantId && /^[a-z0-9_-]{1,64}$/i.test(tenantId)) {
+  } else if (role === "tenant" && tenantId && tenantId !== PLATFORM_TENANT_ID && /^[a-z0-9_-]{1,64}$/i.test(tenantId)) {
     req.scope = { role: "tenant", tenantId };
   } else {
     reply.code(401).send({ error: "missing or invalid identity (x-role / x-tenant-id)" });

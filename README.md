@@ -70,7 +70,8 @@ docs/                      Architecture, decisions, assumptions, runbook, demo s
 - 24 h of history loaded (1.13M one-minute rows, 489k five-minute rows): platform-wide 24 h overview 0.88 s end to end, 24 h time series 0.31 s, 1 h views ~0.1 s, tenant-scoped 24 h 0.05 s
 - Tenant isolation: a tenant-scoped request for another tenant's data returns only its own rows, through the API and directly in psql as the `dashboard_api` role
 - Partitions created two periods ahead and dropped past retention by the aggregator's maintenance loop
-- `npm run check` (typecheck, lint, 72 unit tests) and `npm run smoke` (31 end-to-end checks, including raw-event counts matching the rollup for the same minute) both pass against the running stack
+- `npm run check` (typecheck, lint, 100 unit tests) and `npm run smoke` (35 end-to-end checks, including raw-event counts matching the rollup for the same minute) both pass against the running stack
+- Graceful aggregator shutdown verified twice (SIGTERM, and a watch-mode restart): final flush written and offsets committed, no replay; catch-up after an outage verified by replaying a two-hour-old and a future-dated event plus three malformed messages
 
 ## Scripts
 

@@ -66,6 +66,7 @@ await check("Tenant scope resolves", async () => {
   assert(me.role === "tenant" && me.tenantId === "t001", JSON.stringify(me));
 });
 await check("Admin route refused to tenant (403)", () => req(API, "/api/admin/partitions", { headers: TENANT, expect: 403 }));
+await check("Reserved platform tenant cannot be claimed (401)", () => req(API, "/api/me", { headers: { "x-role": "tenant", "x-tenant-id": "platform" }, expect: 401 }));
 
 // --- read paths ------------------------------------------------------------
 await check("Meta lists tenants and dimensions", async () => {
@@ -137,6 +138,14 @@ await check("Partitions exist for all three tables", async () => {
 });
 await check("Bad range rejected (400)", () => req(API, "/api/overview?from=2026-01-02T00:00:00Z&to=2026-01-01T00:00:00Z", { headers: GLOBAL, expect: 400 }));
 await check("Unknown route (404)", () => req(API, "/api/nope", { headers: GLOBAL, expect: 404 }));
+await check("Non-numeric query params fall back to defaults (200)", async () => {
+  const e = await req(API, "/api/events?range=15m&limit=abc", { headers: GLOBAL });
+  assert(e.events.length === 100, `${e.events.length} rows`);
+  const l = await req(API, "/api/live?seconds=abc&bin=xyz", { headers: GLOBAL });
+  assert(l.binSeconds === 5 && l.points.length === 60, `${l.binSeconds}s bins, ${l.points.length} points`);
+  const s = await req(API, "/api/timeseries?range=1h&step=abc", { headers: GLOBAL });
+  assert(s.stepSeconds === 60, `step ${s.stepSeconds}`);
+});
 
 // --- tenant isolation ------------------------------------------------------
 await check("Tenant admin sees only their rows (events)", async () => {
@@ -171,6 +180,16 @@ await check("Sim proxy: inject then cancel a scenario", async () => {
   const del = await req(API, `/api/sim/scenarios/${s.id}`, { headers: GLOBAL, method: "DELETE" });
   assert(del.removed === s.id, JSON.stringify(del));
   await req(API, `/api/sim/scenarios/${s.id}`, { headers: GLOBAL, method: "DELETE", expect: 404 });
+});
+await check("Sim proxy: tenant admin is pinned to their own tenant", async () => {
+  const s = await req(API, "/api/sim/scenarios", { headers: TENANT, method: "POST", body: { type: "latency_spike", tenantId: "t050", vendor: "atlas", durationSec: 5 }, expect: 201 });
+  assert(s.target.tenantId === "t001" && s.target.vendor === undefined, JSON.stringify(s.target));
+  await req(API, `/api/sim/scenarios/${s.id}`, { headers: GLOBAL, method: "DELETE" });
+});
+await check("Sim proxy: tenant admin cannot cancel all or list tenants (403)", async () => {
+  await req(API, "/api/sim/scenarios", { headers: TENANT, method: "DELETE", expect: 403 });
+  await req(API, "/api/sim/tenants", { headers: TENANT, expect: 403 });
+  await req(API, "/api/sim/tenants", { headers: GLOBAL });
 });
 await check("Sim proxy: validation errors pass through (400)", () =>
   req(API, "/api/sim/scenarios", { headers: GLOBAL, method: "POST", body: { type: "outage" }, expect: 400 }));

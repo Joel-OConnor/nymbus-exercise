@@ -1,7 +1,11 @@
-import type { Pool } from "@nymbus/db";
 import type Redis from "ioredis";
 import { LATENCY_BIN_COUNT, type TxnMetricEvent } from "@nymbus/shared";
 import type { LiveAcc, RollupAcc } from "./accumulator";
+
+/** A pg Pool or a checked-out PoolClient; the flush runs all three Postgres writes on one client inside a transaction. */
+export interface Queryable {
+  query(text: string, values?: unknown[]): Promise<unknown>;
+}
 
 const BIN_COLS = Array.from({ length: LATENCY_BIN_COUNT }, (_, i) => `lat_b${i}`);
 const ROLLUP_COLS = [
@@ -36,7 +40,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
  * max is GREATEST. Any number of aggregator instances can write the same
  * bucket concurrently and the result is the same.
  */
-export async function writeRollups(pool: Pool, table: string, rows: RollupAcc[]): Promise<void> {
+export async function writeRollups(db: Queryable, table: string, rows: RollupAcc[]): Promise<void> {
   if (rows.length === 0) return;
   const updates = [
     "txn_count = t.txn_count + EXCLUDED.txn_count",
@@ -50,7 +54,7 @@ export async function writeRollups(pool: Pool, table: string, rows: RollupAcc[])
     for (const r of part) {
       values.push(r.bucketTs, r.tenantId, r.vendor, r.msgType, r.txnFamily, r.outcomeCode, r.count, r.amountSum.toFixed(2), r.latencySum, r.latencyMax, ...r.bins);
     }
-    await pool.query(
+    await db.query(
       `INSERT INTO ${table} AS t (${ROLLUP_COLS.join(",")}) VALUES ${placeholders(part.length, ROLLUP_COLS.length)}
        ON CONFLICT (bucket_ts, tenant_id, vendor, msg_type, txn_family, outcome_code) DO UPDATE SET ${updates}`,
       values,
@@ -59,14 +63,14 @@ export async function writeRollups(pool: Pool, table: string, rows: RollupAcc[])
 }
 
 /** Raw events; ON CONFLICT DO NOTHING makes a replay after a crash exact rather than duplicated. */
-export async function writeEvents(pool: Pool, events: TxnMetricEvent[]): Promise<void> {
+export async function writeEvents(db: Queryable, events: TxnMetricEvent[]): Promise<void> {
   if (events.length === 0) return;
   for (const part of chunk(events, 2000)) {
     const values: unknown[] = [];
     for (const e of part) {
       values.push(e.occurredAt, e.eventId, e.tenantId, e.vendor, e.sourceConn, e.msgType, e.txnFamily, e.outcomeCode, e.amount.toFixed(2), e.latencyMs, e.stan, e.bin);
     }
-    await pool.query(
+    await db.query(
       `INSERT INTO txn_event (${EVENT_COLS.join(",")}) VALUES ${placeholders(part.length, EVENT_COLS.length)}
        ON CONFLICT (occurred_at, event_id) DO NOTHING`,
       values,

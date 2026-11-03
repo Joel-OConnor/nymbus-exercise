@@ -36,10 +36,29 @@ function partitionName(table: string, startMs: number): string {
   return `${table}_p${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}`;
 }
 
+/**
+ * The [from, to) span of time for which `maintainPartitions` guarantees partitions
+ * exist at `now`: one slice behind the current one, the current one, and
+ * `aheadCount` ahead. Writers with data outside this span (catching up after an
+ * outage) must create partitions first; see `ensurePartitionsFor`.
+ */
+export function maintainedRange(spec: PartitionSpec, now: Date = new Date()): { from: Date; to: Date } {
+  const widthMs = spec.widthMinutes * 60_000;
+  const currentStart = floorTo(now.getTime(), widthMs);
+  return { from: new Date(currentStart - widthMs), to: new Date(currentStart + (spec.aheadCount + 1) * widthMs) };
+}
+
+/** Rows older than this are past retention: their partition is dropped, or about to be. */
+export function retentionHorizon(spec: PartitionSpec, now: Date = new Date()): Date {
+  return new Date(now.getTime() - spec.retainMinutes * 60_000);
+}
+
 export interface MaintenanceResult {
   created: string[];
   dropped: string[];
   skipped: boolean;
+  /** Partitions whose bounds could not be parsed and were therefore left alone. */
+  warnings: string[];
 }
 
 /**
@@ -48,10 +67,13 @@ export interface MaintenanceResult {
  * one does the work; the rest return `skipped: true`.
  */
 export async function maintainPartitions(pool: Pool, now: Date = new Date(), specs = PARTITION_SPECS): Promise<MaintenanceResult> {
-  const result: MaintenanceResult = { created: [], dropped: [], skipped: false };
+  const result: MaintenanceResult = { created: [], dropped: [], skipped: false, warnings: [] };
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // DROP TABLE on a partition needs an exclusive lock on the parent. Never queue
+    // behind a long dashboard query for more than a few seconds; the next tick retries.
+    await client.query("SET LOCAL lock_timeout = '5s'");
     const lock = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_xact_lock($1) AS ok", [MAINTENANCE_LOCK]);
     if (!lock.rows[0].ok) {
       await client.query("ROLLBACK");
@@ -94,8 +116,11 @@ export async function maintainPartitions(pool: Pool, now: Date = new Date(), spe
       for (const child of children.rows) {
         // bound looks like: FOR VALUES FROM ('2026-10-31 22:00:00+00') TO ('2026-10-31 23:00:00+00')
         const m = /TO \('([^']+)'\)/.exec(child.bound);
-        if (!m) continue;
-        const upper = new Date(m[1]).getTime();
+        const upper = m ? new Date(m[1]).getTime() : NaN;
+        if (Number.isNaN(upper)) {
+          result.warnings.push(`cannot parse bound of ${child.name}: ${child.bound}`);
+          continue;
+        }
         if (upper <= horizon) {
           await client.query(`DROP TABLE IF EXISTS ${child.name}`);
           result.dropped.push(child.name);
@@ -139,6 +164,7 @@ export async function ensurePartitionsFor(pool: Pool, from: Date, to: Date, spec
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '5s'");
     await client.query("SELECT pg_advisory_xact_lock($1)", [MAINTENANCE_LOCK]);
     for (const spec of specs) {
       const widthMs = spec.widthMinutes * 60_000;

@@ -149,7 +149,7 @@ export async function timeseries(client: PoolClient, scope: Scope, f: DimensionF
   const m = measures(params);
   const stepParam = params.push(`${stepSeconds} seconds`);
   const sql = `
-    SELECT date_bin($${stepParam}::interval, bucket_ts, TIMESTAMPTZ '2000-01-01') AS ts, ${m}
+    SELECT date_bin($${stepParam}::interval, bucket_ts, TIMESTAMPTZ '2000-01-01T00:00:00Z') AS ts, ${m}
       FROM ${table}
      WHERE ${where}
      GROUP BY 1 ORDER BY 1`;

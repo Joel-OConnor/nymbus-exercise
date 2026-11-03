@@ -1,12 +1,14 @@
 import { Kafka, logLevel, type Consumer } from "kafkajs";
 import Redis from "ioredis";
-import { createPool, maintainPartitions, runMigrations } from "@nymbus/db";
+import { createPool, ensurePartitionsFor, maintainPartitions, runMigrations } from "@nymbus/db";
 import { ensureTopic, quietKafkaJsTimeoutWarning } from "@nymbus/metrics-emitter";
 quietKafkaJsTimeoutWarning();
 import { initMetrics } from "@nymbus/otel";
 import { LATENCY_BUCKETS_MS, outcomeClass, type TxnMetricEvent } from "@nymbus/shared";
-import { Accumulator } from "./accumulator";
+import { Accumulator, type RollupAcc } from "./accumulator";
+import { planFlush } from "./catchup";
 import { config } from "./config";
+import { isValidEvent } from "./validate";
 import { writeEvents, writeHeartbeat, writeLive, writeRollups } from "./writers";
 
 const log = (msg: string) => console.log(`[agg] ${new Date().toISOString()} ${msg}`);
@@ -40,6 +42,23 @@ let processedTotal = 0;
 let newestEventMs = 0;
 let paused = false;
 let flushing = false;
+let lastInvalidLog = 0;
+
+/** pause/resume throw if the consumer is mid-restart after a crash; neither must take the process down. */
+function pauseConsumer(): void {
+  try {
+    consumer.pause([{ topic: config.topic }]);
+  } catch (err) {
+    log(`pause failed (${(err as Error).message})`);
+  }
+}
+function resumeConsumer(): void {
+  try {
+    consumer.resume([{ topic: config.topic }]);
+  } catch (err) {
+    log(`resume failed (${(err as Error).message})`);
+  }
+}
 
 lagGauge.addCallback((r) => r.observe(newestEventMs ? Math.max(0, (Date.now() - newestEventMs) / 1000) : 0));
 
@@ -72,6 +91,7 @@ async function startConsumer(): Promise<void> {
         if (payload.restart) return; // kafkajs is handling it
         log(`consumer crashed (${payload.error.message}); restarting`);
         pendingOffsets.clear();
+        paused = false; // the replacement consumer starts unpaused
         setTimeout(() => void startConsumer(), 3_000);
       });
       await c.connect();
@@ -95,13 +115,22 @@ async function runConsumer(c: Consumer): Promise<void> {
   eachBatch: async ({ batch, heartbeat }) => {
     for (const m of batch.messages) {
       if (!m.value) continue;
-      let e: TxnMetricEvent;
+      let parsed: unknown;
       try {
-        e = JSON.parse(m.value.toString()) as TxnMetricEvent;
+        parsed = JSON.parse(m.value.toString());
       } catch {
+        parsed = undefined;
+      }
+      // A malformed message must never stall the partition: count it, log sparingly, move on.
+      if (!isValidEvent(parsed)) {
         invalidCounter.add(1);
+        if (Date.now() - lastInvalidLog > 10_000) {
+          lastInvalidLog = Date.now();
+          log(`skipping invalid message at ${config.topic}[${batch.partition}]@${m.offset}: ${m.value.toString().slice(0, 120)}`);
+        }
         continue;
       }
+      const e: TxnMetricEvent = parsed;
       acc.add(e);
       processedTotal++;
       processedCounter.add(1);
@@ -117,7 +146,7 @@ async function runConsumer(c: Consumer): Promise<void> {
     // slow, stop fetching until the next flush drains what we hold.
     if (!paused && acc.size >= config.pauseThreshold) {
       paused = true;
-      consumer.pause([{ topic: config.topic }]);
+      pauseConsumer();
       log(`paused consumer at ${acc.size} buffered events`);
     }
     await heartbeat();
@@ -128,23 +157,50 @@ async function runConsumer(c: Consumer): Promise<void> {
 await startConsumer();
 
 // --- flush loop --------------------------------------------------------------------
-async function flush(): Promise<void> {
-  if (flushing) return;
+/** Run the three Postgres writes of one flush as a single transaction, so a retry after a failure never re-applies a half-written flush. */
+async function writePostgres(rollup1m: RollupAcc[], rollup5m: RollupAcc[], events: TxnMetricEvent[]): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await writeRollups(client, "txn_rollup_1m", rollup1m);
+    await writeRollups(client, "txn_rollup_5m", rollup5m);
+    await writeEvents(client, events);
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Returns true when the flush's offsets were committed (or there were none). */
+async function flush(): Promise<boolean> {
+  if (flushing) return false;
   const current = acc;
   if (current.size === 0) {
     await writeHeartbeat(redis, config.instanceId, newestEventMs, processedTotal).catch(() => {});
-    return;
+    return true;
   }
   flushing = true;
   acc = new Accumulator();
   const offsets = [...pendingOffsets.entries()];
   pendingOffsets.clear();
   const t0 = Date.now();
+  let committed = offsets.length === 0;
   try {
+    // Catching up after an outage: data may be older than the partitions the
+    // maintenance loop keeps ready, or older than retention altogether.
+    const planned = planFlush({ rollup1m: [...current.rollup1m.values()], rollup5m: [...current.rollup5m.values()], events: current.events });
+    if (planned.expiredEvents || planned.expiredRollups) {
+      log(`catch-up: skipping ${planned.expiredEvents} raw events and ${planned.expiredRollups} rollup rows already past retention`);
+    }
+    for (const e of planned.ensure) {
+      const made = await ensurePartitionsFor(pool, e.from, e.to, [e.spec]);
+      if (made.length) log(`catch-up: created ${made.length} ${e.spec.table} partition(s) for late data (${e.from.toISOString()} .. ${e.to.toISOString()})`);
+    }
     await Promise.all([
-      writeRollups(pool, "txn_rollup_1m", [...current.rollup1m.values()]),
-      writeRollups(pool, "txn_rollup_5m", [...current.rollup5m.values()]),
-      writeEvents(pool, current.events),
+      writePostgres(planned.rollup1m, planned.rollup5m, planned.events),
       writeLive(redis, [...current.live.values()], config.liveTtlSec).catch((e) => log(`live write failed (non-fatal): ${e.message}`)),
     ]);
     if (current.newestEventMs > newestEventMs) newestEventMs = current.newestEventMs;
@@ -157,6 +213,7 @@ async function flush(): Promise<void> {
           consumer.commitOffsets(offsets.map(([partition, offset]) => ({ topic: config.topic, partition, offset }))),
           new Promise((_, reject) => setTimeout(() => reject(new Error("commit timed out")), 5_000)),
         ]);
+        committed = true;
       } catch (err) {
         // Typically a rebalance or a consumer mid-restart; the data is written, and the
         // replacement consumer will re-read from the last commit (dedupe covers raw events).
@@ -171,19 +228,22 @@ async function flush(): Promise<void> {
     // next flush retries them, and leave offsets uncommitted.
     flushErrors.add(1);
     log(`flush failed, retrying next tick: ${(err as Error).message}`);
+    // Re-queue the failed flush for Postgres only: its Valkey writes ran in parallel
+    // and HINCRBY is not idempotent, so re-applying them would inflate the live strip.
     const merged = new Accumulator();
-    for (const e of current.events) merged.add(e);
-    for (const e of acc.events) merged.add(e);
+    merged.absorb(current, { live: false });
+    merged.absorb(acc, { live: true });
     acc = merged;
     for (const [p, o] of offsets) if (!pendingOffsets.has(p)) pendingOffsets.set(p, o);
   } finally {
     flushing = false;
-    if (paused && acc.size < config.pauseThreshold / 2) {
+    if (paused && !shuttingDown && acc.size < config.pauseThreshold / 2) {
       paused = false;
-      consumer.resume([{ topic: config.topic }]);
+      resumeConsumer();
       log("resumed consumer");
     }
   }
+  return committed;
 }
 
 const flushTimer = setInterval(() => void flush(), config.flushMs);
@@ -193,6 +253,7 @@ const partitionTimer = setInterval(async () => {
   try {
     const r = await maintainPartitions(pool);
     if (r.created.length || r.dropped.length) log(`partitions: created=${r.created.join(",") || "-"} dropped=${r.dropped.join(",") || "-"}`);
+    for (const w of r.warnings) log(`partition maintenance: ${w}`);
   } catch (err) {
     log(`partition maintenance failed: ${(err as Error).message}`);
   }
@@ -203,12 +264,28 @@ const statusTimer = setInterval(() => {
   log(`processed=${processedTotal} buffered=${acc.size} lag=${lag}s paused=${paused}`);
 }, 10_000);
 
+let shuttingDown = false;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Graceful shutdown. Order matters: pause fetching (so nothing new arrives), let
+ * an in-flight batch finish, flush and COMMIT while the consumer is still a
+ * member of the group, and only then stop. kafkajs refuses commitOffsets after
+ * stop(), so stopping first would write the last second to Postgres without
+ * committing it, and the next instance would replay (and double-count) it.
+ */
 async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   clearInterval(flushTimer);
   clearInterval(partitionTimer);
   clearInterval(statusTimer);
+  pauseConsumer();
+  await sleep(250);
+  while (flushing) await sleep(50);
+  const committed = await flush();
+  log(`shutdown: final flush ${committed ? "written and committed" : "written; offsets not committed (next instance replays this second)"}`);
   await consumer.stop().catch(() => {});
-  await flush();
   await consumer.disconnect().catch(() => {});
   await otel.shutdown().catch(() => {});
   redis.disconnect();

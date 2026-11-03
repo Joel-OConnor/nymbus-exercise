@@ -5,10 +5,12 @@ import { LATENCY_BIN_COUNT, estimatePercentile, type LivePoint, type LiveRespons
  * Read the per-second buckets the aggregator keeps in Valkey and re-bin them.
  * Scope is one of: all, t:<tenant>, v:<vendor>. Live is intentionally coarse;
  * full dimensional drill-down is the rollup store's job. Only complete bins are
- * returned so the newest point is never a half-filled bucket.
+ * returned, and the newest seconds are left out: a second's events arrive via
+ * the emitter drain (250 ms), Kafka, and the aggregator's 1 s flush, so the
+ * last ~2 s are still being written when the API reads.
  */
 export async function readLive(redis: Redis, scope: string, seconds: number, binSeconds: number): Promise<LiveResponse> {
-  const nowSec = Math.floor(Date.now() / 1000) - 1; // the current second is still being written
+  const nowSec = Math.floor(Date.now() / 1000) - 3; // see above: these seconds are still in flight
   const endBin = Math.floor(nowSec / binSeconds) * binSeconds; // exclusive
   const binCount = Math.ceil(seconds / binSeconds);
   const startBin = endBin - binCount * binSeconds;

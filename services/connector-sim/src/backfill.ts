@@ -2,8 +2,10 @@
  * Demo prep: synthesize the previous ~24 hours of rollups so the 24-hour view
  * has history on day one. Uses the same tenant population and traffic shape as
  * the live simulator, adds a diurnal curve and three historical incidents.
- * Writes only to buckets older than the live aggregator's window and never
- * overwrites existing rows. Raw events are not backfilled (75 min retention).
+ * Idempotent and safe alongside the live pipeline: any 5-minute bucket that
+ * already has rows (written live, or by an earlier backfill) is skipped whole,
+ * and the newest 20 minutes are always left to the aggregator. Raw events are
+ * not backfilled (75 min retention).
  *
  *   npm run backfill -w services/connector-sim            # last 24 h
  *   BACKFILL_HOURS=6 npm run backfill -w services/connector-sim
@@ -151,15 +153,20 @@ function rowsForBucket(bucket: Date, widthMin: number): Row[] {
   return rows;
 }
 
-const end = Math.floor((now - 20 * 60_000) / 60_000) * 60_000; // leave the last 20 min to the live pipeline
+const end = Math.floor((now - 20 * 60_000) / 300_000) * 300_000; // 5-min aligned; leave the last 20 min to the live pipeline
 const start = end - hours * H;
 log(`${tenants.length} tenants, ${hours} h, ${new Date(start).toISOString()} → ${new Date(end).toISOString()}`);
 const rollupSpecs = PARTITION_SPECS.filter((s) => s.table.startsWith("txn_rollup"));
 const made = await ensurePartitionsFor(pool, new Date(start), new Date(end), rollupSpecs);
 if (made.length) log(`created ${made.length} historical partitions`);
+const populated = new Set(
+  (await pool.query<{ bucket_ts: Date }>("SELECT DISTINCT bucket_ts FROM txn_rollup_5m WHERE bucket_ts >= $1 AND bucket_ts < $2", [new Date(start), new Date(end)])).rows.map((r) => r.bucket_ts.getTime()),
+);
+if (populated.size) log(`skipping ${populated.size} five-minute buckets that already hold data`);
 let rows1 = 0, rows5 = 0;
 const t0 = Date.now();
 for (let t = start; t < end; t += 5 * 60_000) {
+  if (populated.has(t)) continue;
   const batch1: Row[] = [];
   for (let m = 0; m < 5; m++) batch1.push(...rowsForBucket(new Date(t + m * 60_000), 1));
   const batch5 = rowsForBucket(new Date(t), 5);

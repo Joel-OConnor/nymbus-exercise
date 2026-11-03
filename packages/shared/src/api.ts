@@ -129,10 +129,14 @@ export interface EventsResponse {
 }
 
 export interface FreshnessResponse {
-  /** Seconds between now and the newest event the aggregator has written. */
+  /**
+   * Seconds between now and the newest event written by the *slowest* live
+   * aggregator. With several replicas each owning partitions, a stalled one must
+   * not hide behind a healthy one.
+   */
   lagSeconds: number | null;
   lastEventAt: string | null;
-  aggregators: { instance: string; lastEventAt: string; flushedAt: string; processed: number }[];
+  aggregators: { instance: string; lastEventAt: string | null; flushedAt: string; processed: number }[];
 }
 
 export interface HealthResponse {

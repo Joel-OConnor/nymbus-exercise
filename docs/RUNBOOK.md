@@ -15,7 +15,7 @@ cp .env.example .env
 npm install
 npm run infra:up          # postgres, valkey, kafka, otel-collector, prometheus, grafana (waits for health)
 npm run db:migrate        # schema, RLS role + policies, initial partitions
-npm run db:backfill       # optional: ~24 h of synthetic history so the 24h view isn't empty (~1-2 min)
+npm run db:backfill       # optional: ~24 h of synthetic history so the 24h view isn't empty (~1-2 min); idempotent, skips buckets that already hold data
 npm run dev               # simulator + aggregator + API + web, one terminal, colour-coded
 ```
 
@@ -125,7 +125,7 @@ Freshness badge colours: green < 5 s, amber < 15 s, red beyond or no heartbeat.
 
 **Charts show zeros for a period.** Either a real outage in the simulated traffic (an `outage` scenario) or the aggregator was down for that period and Kafka retention had expired. Gaps are rendered as zeros on purpose so silence is visible.
 
-**Inserts failing with "no partition of relation ... found".** The maintenance loop missed a boundary (the aggregator was down for over two hours). `npm run -w packages/db partitions` fixes it; the aggregator also runs it at startup.
+**Aggregator restarted after a long outage.** It catches up from the last committed offset. Data older than the partitions the maintenance loop keeps ready triggers `catch-up: created N partition(s)`; raw events already past the 75-minute retention are skipped (`catch-up: skipping …`) rather than failing, while their rollups are still written. A persistent `no partition of relation` error means a partition was dropped between creation and insert; the next flush retries and the row is skipped once it is past retention.
 
 **A tenant admin sees nothing.** Expected if the tenant has no traffic in the window, or if `API_DATABASE_URL` points at a role without the RLS policies (fail closed). Check `GET /api/me` returns the expected scope.
 

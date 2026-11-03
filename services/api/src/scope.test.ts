@@ -45,6 +45,12 @@ describe("resolveScope", () => {
     expect(run({ "x-role": "tenant", "x-tenant-id": "x".repeat(65) }).done).not.toHaveBeenCalled();
   });
 
+  it("does not let a tenant admin claim the reserved platform tenant", () => {
+    const { done, reply } = run({ "x-role": "tenant", "x-tenant-id": "platform" });
+    expect(done).not.toHaveBeenCalled();
+    expect(reply.code).toHaveBeenCalledWith(401);
+  });
+
   it("does not let a tenant admin claim the global wildcard", () => {
     // '*' is what withScope sets for global; it must never be accepted from a header.
     const { done, reply } = run({ "x-role": "tenant", "x-tenant-id": "*" });

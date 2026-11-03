@@ -13,6 +13,8 @@ import {
 } from "@nymbus/shared";
 import { TtlCache } from "./cache";
 import { config } from "./config";
+import { intParam } from "./params";
+import { summarizeFreshness } from "./freshness";
 import { readLive } from "./live";
 import { events, overview, timeseries, type Window } from "./queries";
 import { resolveScope, withScope } from "./scope";
@@ -74,7 +76,7 @@ export function registerRoutes(app: FastifyInstance, pool: Pool, redis: Redis) {
     scoped.get<{ Querystring: Q }>("/api/timeseries", async (req) => {
       const w = parseWindow(req.query);
       const f = parseFilters(req.query);
-      const step = req.query.step ? Number(req.query.step) : undefined;
+      const step = req.query.step ? intParam(req.query.step, 60, 60, 24 * 3600) : undefined;
       const key = `ts|${req.scope.role}|${req.scope.tenantId ?? ""}|${JSON.stringify(f)}|${step ?? ""}|${Math.floor(w.from.getTime() / 1000)}|${Math.floor(w.to.getTime() / 1000)}`;
       return cache.get(key, () => withScope(pool, req.scope, (c) => timeseries(c, req.scope, f, w, step)));
     });
@@ -82,33 +84,21 @@ export function registerRoutes(app: FastifyInstance, pool: Pool, redis: Redis) {
     scoped.get<{ Querystring: Q }>("/api/events", async (req) => {
       const w = parseWindow(req.query, "15m", 75 * 60);
       const f = parseFilters(req.query);
-      const limit = Math.min(Math.max(Number(req.query.limit ?? 100), 1), 500);
+      const limit = intParam(req.query.limit, 100, 1, 500);
       const r = await withScope(pool, req.scope, (c) => events(c, req.scope, f, w, limit));
       return { range: { from: w.from.toISOString(), to: w.to.toISOString() }, ...r };
     });
 
     scoped.get<{ Querystring: Q }>("/api/live", async (req) => {
-      const seconds = Math.min(Math.max(Number(req.query.seconds ?? 300), 10), 900);
-      const bin = Math.min(Math.max(Number(req.query.bin ?? 5), 1), 60);
+      const seconds = intParam(req.query.seconds, 300, 10, 900);
+      const bin = intParam(req.query.bin, 5, 1, 60);
       const f = parseFilters(req.query);
       const tenant = req.scope.role === "tenant" ? req.scope.tenantId : f.tenantId;
       const scope = tenant ? `t:${tenant}` : f.vendor ? `v:${f.vendor}` : "all";
       return readLive(redis, scope, seconds, bin);
     });
 
-    scoped.get("/api/freshness", async (): Promise<FreshnessResponse> => {
-      const raw = await redis.hgetall("metrics:aggregators");
-      const cutoff = Date.now() - 30_000;
-      const aggregators = Object.entries(raw)
-        .map(([instance, v]) => ({ instance, ...(JSON.parse(v) as { lastEventAt: string; flushedAt: string; processed: number }) }))
-        .filter((a) => Date.parse(a.flushedAt) >= cutoff);
-      const newest = aggregators.reduce<number>((m, a) => Math.max(m, a.lastEventAt ? Date.parse(a.lastEventAt) : 0), 0);
-      return {
-        lagSeconds: newest ? Math.round(((Date.now() - newest) / 1000) * 10) / 10 : null,
-        lastEventAt: newest ? new Date(newest).toISOString() : null,
-        aggregators,
-      };
-    });
+    scoped.get("/api/freshness", async (): Promise<FreshnessResponse> => summarizeFreshness(await redis.hgetall("metrics:aggregators")));
 
     scoped.get("/api/admin/partitions", async (req, reply) => {
       if (req.scope.role !== "global") return reply.code(403).send({ error: "global operators only" });
@@ -118,11 +108,18 @@ export function registerRoutes(app: FastifyInstance, pool: Pool, redis: Redis) {
     // Demo-only: proxy the traffic simulator's control surface so the browser talks to one origin.
     scoped.all<{ Params: { "*": string }; Body: unknown }>("/api/sim/*", async (req, reply) => {
       const url = `${config.simControlUrl}/${req.params["*"]}`;
+      let body: unknown = req.body ?? {};
+      if (req.scope.role === "tenant") {
+        // A tenant admin may create conditions only for their own institution, and may not clear everyone's.
+        if (req.method === "POST") body = { ...(body as Record<string, unknown>), tenantId: req.scope.tenantId, vendor: undefined };
+        if (req.method === "DELETE" && req.params["*"] === "scenarios") return reply.code(403).send({ error: "global operators only" });
+        if (req.params["*"] === "tenants") return reply.code(403).send({ error: "global operators only" });
+      }
       try {
         const res = await fetch(url, {
           method: req.method,
           headers: { "content-type": "application/json" },
-          body: req.method === "GET" || req.method === "HEAD" ? undefined : JSON.stringify(req.body ?? {}),
+          body: req.method === "GET" || req.method === "HEAD" ? undefined : JSON.stringify(body),
         });
         reply.code(res.status);
         return res.headers.get("content-type")?.includes("json") ? res.json() : res.text();

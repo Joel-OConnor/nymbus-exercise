@@ -11,7 +11,7 @@ export const config = {
   flushMs: Number(process.env.AGG_FLUSH_MS ?? 1000),
   /** Pause the consumer if this many raw events are waiting for a flush (DB is falling behind). */
   pauseThreshold: Number(process.env.AGG_PAUSE_THRESHOLD ?? 50_000),
-  /** Seconds the live (1 s) buckets stay in Valkey. */
-  liveTtlSec: 15 * 60,
+  /** Seconds the live (1 s) buckets stay in Valkey: comfortably past the API's 15-minute maximum live window. */
+  liveTtlSec: 20 * 60,
   instanceId: process.env.AGG_INSTANCE_ID ?? `${hostname()}-${process.pid}`,
 };

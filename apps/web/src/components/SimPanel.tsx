@@ -194,7 +194,7 @@ export function SimPanel({ scope, meta }: { scope: Scope; meta?: MetaResponse })
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <span className="panel-title">Active scenarios</span>
-                {status?.scenarios.length ? (
+                {status?.scenarios.length && scope.role === "global" ? (
                   <button className="text-xs text-muted hover:text-white" onClick={() => void cancel()}>
                     cancel all
                   </button>

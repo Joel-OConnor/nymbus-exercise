@@ -78,11 +78,50 @@ describe("Accumulator", () => {
 
   it("tracks the newest event time and ignores unparseable timestamps", () => {
     const acc = new Accumulator();
-    acc.add(event({ occurredAt: "2026-11-03T12:00:05.000Z" }));
-    acc.add(event({ occurredAt: "2026-11-03T12:00:01.000Z" }));
-    acc.add(event({ occurredAt: "not a date" }));
+    const now = Date.parse("2026-11-03T12:00:10.000Z");
+    acc.add(event({ occurredAt: "2026-11-03T12:00:05.000Z" }), now);
+    acc.add(event({ occurredAt: "2026-11-03T12:00:01.000Z" }), now);
+    acc.add(event({ occurredAt: "not a date" }), now);
     expect(acc.size).toBe(2);
     expect(new Date(acc.newestEventMs).toISOString()).toBe("2026-11-03T12:00:05.000Z");
+  });
+
+  it("absorb() re-queues rollups and events, and only optionally the live side", () => {
+    const now = Date.parse("2026-11-03T12:35:00.000Z");
+    const failed = new Accumulator();
+    failed.add(event({ outcomeCode: "00", latencyMs: 100, amount: 5 }), now);
+    failed.add(event({ outcomeCode: "51", latencyMs: 700, amount: 7 }), now);
+    const fresh = new Accumulator();
+    fresh.add(event({ outcomeCode: "00", latencyMs: 100, amount: 1 }), now);
+
+    const merged = new Accumulator();
+    merged.absorb(failed, { live: false }); // its Valkey writes already landed
+    merged.absorb(fresh, { live: true });
+
+    expect(merged.size).toBe(3);
+    const approved = [...merged.rollup1m.values()].find((r) => r.outcomeCode === "00")!;
+    expect(approved.count).toBe(2);
+    expect(approved.amountSum).toBeCloseTo(6);
+    expect(approved.bins[1]).toBe(2);
+    expect([...merged.rollup1m.values()].find((r) => r.outcomeCode === "51")!.latencyMax).toBe(700);
+    // Live reflects only the fresh accumulator.
+    const sec = Math.floor(Date.parse("2026-11-03T12:34:56.789Z") / 1000);
+    expect(merged.live.get(`all|${sec}`)).toMatchObject({ n: 1, ok: 1, dec: 0 });
+    expect(merged.newestEventMs).toBe(Date.parse("2026-11-03T12:34:56.789Z"));
+    // Absorbing does not alias the source's arrays.
+    failed.rollup1m.values().next().value!.bins[1] = 99;
+    expect(approved.bins[1]).toBe(2);
+  });
+
+  it("does not let a future-dated event drag the freshness high-water mark forward", () => {
+    const acc = new Accumulator();
+    const now = Date.parse("2026-11-03T12:00:00.000Z");
+    acc.add(event({ occurredAt: "2026-11-03T11:59:59.000Z" }), now);
+    acc.add(event({ occurredAt: "2026-11-03T12:00:30.000Z" }), now); // 30 s ahead: tolerated skew
+    acc.add(event({ occurredAt: "2026-11-03T15:00:00.000Z" }), now); // 3 h ahead: still stored, but ignored for freshness
+    expect(acc.size).toBe(3);
+    expect(acc.rollup1m.size).toBe(3);
+    expect(new Date(acc.newestEventMs).toISOString()).toBe("2026-11-03T12:00:30.000Z");
   });
 
   it("is additive: two accumulators flushed separately equal one", () => {

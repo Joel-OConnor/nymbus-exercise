@@ -95,7 +95,10 @@ BEGIN
   END IF;
 END $$;
 
-GRANT CONNECT ON DATABASE nymbus TO dashboard_api;
+DO $$
+BEGIN
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO dashboard_api', current_database());
+END $$;
 GRANT USAGE ON SCHEMA public TO dashboard_api;
 GRANT SELECT ON tenant, txn_rollup_1m, txn_rollup_5m, txn_event TO dashboard_api;
 
