@@ -118,6 +118,14 @@ Freshness badge colours: green < 5 s, amber < 15 s, red beyond or no heartbeat.
 
 **`TimeoutNegativeWarning` on startup.** kafkajs on Node 24+; harmless and filtered by `quietKafkaJsTimeoutWarning()`.
 
+**`npm run dev` exits immediately with `EADDRINUSE` on 3000, 4000 or 4100.** A previous run (or a stray `tsx watch`) still owns the port; `concurrently -k` then stops the other three. Find and stop it, then start again:
+
+```bash
+lsof -nP -iTCP:3000 -iTCP:4000 -iTCP:4100 -sTCP:LISTEN
+```
+
+**Postgres restarted (deploy, failover, `docker compose restart postgres`).** Both the API and the aggregator log `[db] idle client error, connection discarded` once per pooled connection and keep running; the pool reconnects on the next query. A dashboard request that lands inside the restart window returns a 500 and the console's next poll succeeds. The aggregator logs `flush failed, retrying next tick` and carries on; nothing is lost because offsets are committed only after a durable write.
+
 ## Ports
 
 | Port | Service |

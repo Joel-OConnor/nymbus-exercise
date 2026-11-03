@@ -11,11 +11,21 @@ export type Pool = pg.Pool;
 export type PoolClient = pg.PoolClient;
 
 export function createPool(connectionString: string, opts: Partial<pg.PoolConfig> = {}): pg.Pool {
-  return new Pool({
+  const pool = new Pool({
     connectionString,
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
     ...opts,
   });
+
+  // An idle client that loses its connection (Postgres restart, failover, network
+  // blip) emits 'error' on the pool. Without a listener Node treats that as an
+  // unhandled 'error' event and exits the process. pg-pool already discards the
+  // dead client; all we need to do is note it and let the next query reconnect.
+  pool.on("error", (err) => {
+    console.error(`[db] idle client error, connection discarded: ${err.message}`);
+  });
+
+  return pool;
 }
