@@ -90,10 +90,18 @@ export class MetricsEmitter {
     this.timer.unref();
   }
 
+  /**
+   * Graceful shutdown (SIGTERM on a pod): ship what is buffered, give in-flight
+   * sends a moment to land, then disconnect. Anything still unsent after the
+   * deadline is lost, which is the documented cost of keeping the buffer in
+   * process memory.
+   */
   async stop(): Promise<void> {
-    this.stopping = true;
     if (this.timer) clearInterval(this.timer);
     await this.drain();
+    const deadline = Date.now() + 5_000;
+    while (this.inflight > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    this.stopping = true;
     try {
       await this.producer.disconnect();
     } catch {

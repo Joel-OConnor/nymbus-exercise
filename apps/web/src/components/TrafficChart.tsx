@@ -35,7 +35,9 @@ export function TrafficChart({ series, selected, onSelect }: { series?: Timeseri
             data={data}
             margin={{ top: 4, right: 8, left: -12, bottom: 0 }}
             onClick={(state) => {
-              const p = (state as { activePayload?: { payload?: { ts: string } }[] } | null)?.activePayload?.[0]?.payload;
+              // Recharts 3 hands the chart-level click handler an index, not the row payload.
+              const idx = Number(state?.activeTooltipIndex);
+              const p = Number.isInteger(idx) ? data[idx] : undefined;
               if (!p?.ts) return;
               const from = p.ts;
               const to = new Date(Date.parse(p.ts) + step * 1000).toISOString();

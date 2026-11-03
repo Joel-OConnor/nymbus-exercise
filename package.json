@@ -19,15 +19,24 @@
     "dev:sim": "npm run dev -w services/connector-sim",
     "db:migrate": "npm run migrate -w packages/db",
     "build": "npm run build --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present",
+    "lint": "eslint packages services && npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "infra:up": "docker compose up -d --wait",
     "infra:down": "docker compose down",
     "infra:reset": "docker compose down -v",
     "infra:logs": "docker compose logs -f",
-    "db:backfill": "npm run backfill -w services/connector-sim"
+    "db:backfill": "npm run backfill -w services/connector-sim",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke": "node scripts/smoke.mjs",
+    "check": "npm run typecheck && npm run lint && npm run test"
   },
   "devDependencies": {
-    "concurrently": "^9"
+    "@eslint/js": "^9.39.5",
+    "concurrently": "^9",
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^4.1.12"
   }
 }

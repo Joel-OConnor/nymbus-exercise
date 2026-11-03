@@ -32,6 +32,19 @@ Then open http://localhost:3000. Grafana is at http://localhost:3001 (admin / ad
 
 Each service is independent: the simulator and aggregator both ensure the Kafka topic and run migrations at start, so order does not matter.
 
+## Checks
+
+```bash
+npm run check             # typecheck + lint + unit tests, no infrastructure needed (~20 s)
+npm run smoke             # end-to-end against a running stack; exit 1 on any failure
+```
+
+Unit tests sit next to the code (`*.test.ts`) and cover the pure logic: latency binning and percentile estimation, the aggregator's additive accumulation, query planning and filter building, scope resolution, scenario effects and expiry, tenant generation, and the emitter's buffer contract (synchronous emit, drop at cap, tenant-keyed batches, requeue on failure, flush on stop) against a fake Kafka producer.
+
+The smoke test needs `npm run dev` up for a minute or two first. It hits every API route as both roles, checks that a tenant admin cannot see or widen past their own rows, injects and cancels a scenario through the proxy the way the console does, confirms the CORS preflight the console relies on, and checks the collector, Prometheus and Grafana. One check compares the raw rows in a completed minute with that minute's rollup count, so a divergence between tiers shows up here first. Run it before a demo.
+
+Lint covers the Node side from the root `eslint.config.mjs` (typescript-eslint recommended) and the console from `apps/web/eslint.config.mjs` (eslint-config-next).
+
 ## Configuration
 
 All in `.env` (see `.env.example` for the full list). The ones worth knowing:
