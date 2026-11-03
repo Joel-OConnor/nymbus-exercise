@@ -24,7 +24,7 @@ cp .env.example .env
 npm install
 npm run infra:up        # Postgres, Valkey, Kafka, OTel collector, Prometheus, Grafana
 npm run db:migrate      # schema, row-level security, initial partitions
-npm run db:backfill     # optional: 24 h of synthetic history with a few incidents
+npm run db:backfill     # optional: 24 h of synthetic history for the console's 24h view (Postgres only; Grafana fills as the stack runs)
 npm run dev             # simulator + aggregator + API + console
 ```
 

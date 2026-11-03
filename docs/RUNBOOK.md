@@ -15,7 +15,7 @@ cp .env.example .env
 npm install
 npm run infra:up          # postgres, valkey, kafka, otel-collector, prometheus, grafana (waits for health)
 npm run db:migrate        # schema, RLS role + policies, initial partitions
-npm run db:backfill       # optional: ~24 h of synthetic history so the 24h view isn't empty (~1-2 min); idempotent, skips buckets that already hold data
+npm run db:backfill       # optional: ~24 h of synthetic history so the console's 24h view isn't empty (~20 s); idempotent, skips buckets that already hold data. Postgres only: Grafana/Prometheus is never backfilled
 npm run dev               # simulator + aggregator + API + web, one terminal, colour-coded
 ```
 
@@ -100,7 +100,7 @@ docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-se
 ### Resetting
 
 ```bash
-npm run infra:reset       # drops all volumes: Postgres data, Kafka log, Grafana state
+npm run infra:reset       # also drops the Postgres volume. Kafka log, Prometheus history and Grafana state live inside the containers and are lost on any `down`
 npm run infra:up && npm run db:migrate
 ```
 

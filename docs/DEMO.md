@@ -88,4 +88,4 @@ If asked how it holds together:
 - **Tenant switcher list empty**: the API couldn't reach Postgres. `docker compose ps`.
 - **Scenario buttons do nothing**: simulator not running (`npm run dev:sim`) or the API can't reach :4100.
 - **24h view empty**: backfill wasn't run. The last hour is still fine.
-- **Grafana shows "No data"**: Prometheus needs ~30 s of scrapes after the aggregator starts.
+- **Grafana shows "No data" or only a sliver on the right**: Prometheus holds only what the aggregator has exported since it started (first points after ~30 s, the latency panel after ~5 min). Backfill writes to Postgres, not Prometheus, so it never appears in Grafana, and `docker compose down` or deleting the containers clears Prometheus history. Narrow the time range to "Last 15 minutes", or start the stack earlier.
