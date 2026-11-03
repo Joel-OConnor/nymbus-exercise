@@ -69,6 +69,16 @@ export function SimPanel({ scope, meta }: { scope: Scope; meta?: MetaResponse })
     }
   };
 
+  const cancel = async (id?: string) => {
+    setMsg(undefined);
+    try {
+      await (id ? api.simCancel(scope, id) : api.simCancelAll(scope));
+      setMsg(id ? `cancelled scenario ${id}` : "cancelled all scenarios");
+    } catch (err) {
+      setMsg(`error: ${(err as Error).message}`);
+    }
+  };
+
   const e = status?.emitter;
   const c = status?.connector;
   const tenants = meta?.tenants ?? [];
@@ -185,7 +195,7 @@ export function SimPanel({ scope, meta }: { scope: Scope; meta?: MetaResponse })
               <div className="mb-1 flex items-center justify-between">
                 <span className="panel-title">Active scenarios</span>
                 {status?.scenarios.length ? (
-                  <button className="text-xs text-muted hover:text-white" onClick={() => api.simCancelAll(scope)}>
+                  <button className="text-xs text-muted hover:text-white" onClick={() => void cancel()}>
                     cancel all
                   </button>
                 ) : null}
@@ -201,7 +211,7 @@ export function SimPanel({ scope, meta }: { scope: Scope; meta?: MetaResponse })
                         <span className="text-slate-200">{s.description}</span>
                         <span className="flex items-center gap-2 whitespace-nowrap text-slate-400">
                           {left}s left
-                          <button className="text-muted hover:text-white" onClick={() => api.simCancel(scope, s.id)} aria-label="cancel scenario">
+                          <button className="text-muted hover:text-white" onClick={() => void cancel(s.id)} aria-label="cancel scenario">
                             ×
                           </button>
                         </span>

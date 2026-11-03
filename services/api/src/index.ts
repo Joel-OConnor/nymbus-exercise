@@ -6,7 +6,12 @@ import { config } from "./config";
 import { registerRoutes } from "./routes";
 
 const app = Fastify({ logger: { level: "warn" } });
-await app.register(cors, { origin: true, allowedHeaders: ["content-type", "x-role", "x-tenant-id"] });
+await app.register(cors, {
+  origin: true,
+  // @fastify/cors defaults to GET,HEAD,POST; the demo-only sim proxy cancels scenarios with DELETE.
+  methods: ["GET", "HEAD", "POST", "DELETE"],
+  allowedHeaders: ["content-type", "x-role", "x-tenant-id"],
+});
 
 const pool = createPool(config.databaseUrl, { max: 10 });
 const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: 1 });

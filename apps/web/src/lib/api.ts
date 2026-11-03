@@ -70,8 +70,14 @@ export const api = {
     if (!res.ok) throw new Error((await res.json().catch(() => ({ error: res.statusText }))).error);
     return res.json() as Promise<Scenario>;
   },
-  simCancel: (scope: Scope, id: string) => fetch(`${API_URL}/api/sim/scenarios/${id}`, { method: "DELETE", headers: headersFor(scope) }),
-  simCancelAll: (scope: Scope) => fetch(`${API_URL}/api/sim/scenarios`, { method: "DELETE", headers: headersFor(scope) }),
+  simCancel: async (scope: Scope, id: string) => {
+    const res = await fetch(`${API_URL}/api/sim/scenarios/${id}`, { method: "DELETE", headers: headersFor(scope) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({ error: res.statusText }))).error);
+  },
+  simCancelAll: async (scope: Scope) => {
+    const res = await fetch(`${API_URL}/api/sim/scenarios`, { method: "DELETE", headers: headersFor(scope) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({ error: res.statusText }))).error);
+  },
 };
 
 export interface PartitionRow {
